@@ -4,7 +4,7 @@ module Language.SpirV.SpirEnum where
 
 import {-# SOURCE #-} Language.SpirV.Capability
 
-class SpirEnum a b | a -> b where
-  toWord :: a -> b
-  fromWord :: b -> Maybe a
+class SpirEnum a word | a -> word where
+  toWord :: a -> word
+  fromWord :: word -> Maybe a
   requiredCapabilities :: a -> [Capability]
