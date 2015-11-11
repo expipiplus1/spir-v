@@ -131,8 +131,10 @@ enumConstructorDocumentation :: EnumElement -> Doc
 enumConstructorDocumentation EnumElement{..} = docLineComents (fromString <$> lines eeDescription)
 
 docLineComents :: [Doc] -> Doc
-docLineComents [] = empty
-docLineComents (l:ls) = vsep $ intersperse "--" (("-- |" <+> l) : (("--" <+>) <$> ls))
+docLineComents cs = let isEmpty d = show d == ""
+                    in case filter (not . isEmpty) cs of
+                         [] -> empty
+                         (l:ls) -> vsep $ intersperse "--" (("-- |" <+> l) : (("--" <+>) <$> ls))
 
 --------------------------------------------------------------------------------
 -- Instruction Groups
