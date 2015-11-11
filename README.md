@@ -2,7 +2,6 @@
 
 A package to help with the generation of Spir-V code from Haskell.
 
-## Development info
+The generate directory contains a program to generate much of this package's
+implementation from the html spir-v specification
 
-Shortly after starting this I went traveling around the world without a computer,
-hence this project's immaturity. I'm back now, and hoping to restart this work soon.
