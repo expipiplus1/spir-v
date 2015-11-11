@@ -310,7 +310,7 @@ parseSubsubsectionTitle = parseMaybe $
      skipSpace
      (n, ) . unpack <$> takeText
 
-data Table a = Table { tableHead :: [a]
+data Table a = Table { _tableHead :: [a]
                      , tableBody :: [[a]]
                      }
   deriving (Show, Eq, Functor, Foldable, Traversable)
