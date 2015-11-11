@@ -19,10 +19,16 @@ executable generate
   main-is:             Main.hs
   other-modules:
     Check
+    Control.Arrow.ArrowList.Extra
+    ConvertHTML
+    Data.Maybe.Extra
+    Output
     Parse
+    Regex
     Spec
+    Table
     Write
-  ghc-options:         -Wall -threaded -rtsopts -with-rtsopts=-N
+  ghc-options:         -Wall -threaded -rtsopts -with-rtsopts=-N -dynamic
   build-depends:
     base >= 4.7 && < 5,
     array >= 0.5 && < 0.6,

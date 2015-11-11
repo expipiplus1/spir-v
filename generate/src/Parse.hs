@@ -1,7 +1,4 @@
 {-# LANGUAGE Arrows #-}
-{-# LANGUAGE DeriveFunctor #-}
-{-# LANGUAGE DeriveFoldable #-}
-{-# LANGUAGE DeriveTraversable #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE TupleSections #-}
 
@@ -17,20 +14,18 @@ import Data.Char (isSpace, isDigit)
 import Data.Foldable (minimumBy, asum)
 import Data.Function (on)
 import Data.List (isInfixOf)
-import Data.Maybe (fromMaybe, catMaybes, listToMaybe)
+import Data.Maybe.Extra (rightToMaybe, fromMaybe, catMaybes, listToMaybe)
 import Data.Text (pack, unpack)
 import Data.Version (Version, parseVersion)
 import Data.Word  (Word32, Word16)
-import Regex
 import Safe (headMay, atMay, tailMay, initMay, lastMay)
-import Spec
-import Text.Pandoc (readHtml, writePlain, writeHaddock, def, WriterOptions(..))
-import Text.Pandoc.Walk (Walkable(walk))
-import Text.Pandoc.Definition (Pandoc, Inline(..), nullAttr)
 import Text.Read (readMaybe)
 import Text.XML.HXT.Core hiding (xshow, trace)
-import Text.XML.HXT.DOM.ShowXml (xshow)
 import Text.ParserCombinators.ReadP (ReadP, readP_to_S)
+
+import ConvertHTML
+import Spec
+import Table
 
 parseSpec :: String -> IO (Maybe Spec)
 parseSpec t =
@@ -77,7 +72,7 @@ parseVersionText = fromMaybe (error "Unable to parse version") .
 getLimits :: ArrowXml a => a XmlTree [Limit]
 getLimits =
       hasSubsectionId "_a_id_limits_a_universal_limits"
-  >>> single (deep getTableNoHead)
+  >>> single (deep getHeadlessTable)
   >>> arrF (traverse htmlToPlain)
   >>^ limitsFromTable
   where limitsFromTable (Table _ body) =
@@ -107,7 +102,7 @@ getStandardSubsection =
   proc tree -> do
     subsection  <- isSubsection -< tree
     title       <- single (hasName "h3" <<< getChildren) -< subsection
-    titleText   <- getAllText -< title
+    titleText   <- arrF htmlToPlain -< title
     titleId     <- getAttrValue "id" -< title
     -- TODO: html descriptions
     description <- concat ^<< listA (arrF htmlToHaddock <<< neg isTable <<< neg (hasName "h3") <<< getChildren) -< subsection
@@ -180,9 +175,9 @@ getInstructionGroup =
   proc tree ->
     do subsubsection  <- isSubsubsection -< tree
        title          <- single (hasName "h4" <<< getChildren) -< subsubsection
-       (number, name) <- arrF parseSubsubsectionTitle <<< getAllText -< title
+       (number, name) <- arrF parseSubsubsectionTitle <<< arrF htmlToPlain -< title
        -- Every table in this subsubsection should describe a new instruction
-       tables         <- listA (getTableNoHead <<< getChildren) -< subsubsection
+       tables         <- listA (getHeadlessTable <<< getChildren) -< subsubsection
        -- We probably want to warn when a table couldn't be parsed
        instructions   <- arr (catMaybes . fmap tableInstruction) -< tables
        arr3 InstructionGroup -< (number, (name, instructions))
@@ -280,12 +275,9 @@ parseWordCount = parseMaybe $
 
 -- Reading html constructs
 
--- | getAllText gets all the human readable text under the given node
-getAllText :: ArrowXml a => a XmlTree String
-getAllText = deep getText >. concat
-
-isSubsubsection :: ArrowXml a => a XmlTree XmlTree
-isSubsubsection = hasAttrValue "class" (== "sect3")
+--
+-- Subsection
+--
 
 isSubsection :: ArrowXml a => a XmlTree XmlTree
 isSubsection = hasAttrValue "class" (== "sect2")
@@ -302,84 +294,19 @@ parseSubsectionTitle = parseMaybe $
      skipSpace
      (n, ) . unpack <$> takeText
 
+--
+-- Subsubsection
+--
+
+isSubsubsection :: ArrowXml a => a XmlTree XmlTree
+isSubsubsection = hasAttrValue "class" (== "sect3")
+
 parseSubsubsectionTitle :: String -> Maybe ((Int, Int, Int), String)
 parseSubsubsectionTitle = parseMaybe $
   do n <- (,,) <$> decimal <* "." <*> decimal <* "." <*> decimal <* "."
      skipSpace
      (n, ) . unpack <$> takeText
 
-data Table a = Table { _tableHead :: [a]
-                     , tableBody :: [[a]]
-                     }
-  deriving (Show, Eq, Functor, Foldable, Traversable)
-
-atRow :: Table a -> Int -> Maybe [a]
-atRow t r = tableBody t `atMay` r
-
-atCell :: Table a -> (Int, Int) -> Maybe a
-atCell t (r, c) = (t `atRow` r) >>= (`atMay` c)
-
-isTable :: ArrowXml a => a XmlTree XmlTree
-isTable = hasName "table"
-
-getTable :: ArrowXml a => a XmlTree (Table XmlTree)
-getTable =
-  isTable >>>
-  ((getChildren >>> hasName "thead" /> getTableRow) &&&
-   (getChildren >>> hasName "tbody" >>> listA (getChildren >>> getTableRow))) >>^
-  uncurry Table
-  where getTableRow =
-          hasName "tr" >>>
-          listA (getChildren >>> (hasName "td" `orElse` hasName "th"))
-
-getTableNoHead :: ArrowXml a => a XmlTree (Table XmlTree)
-getTableNoHead =
-  isTable />
-  (hasName "tbody" >>> listA (getChildren >>> getTableRow)) >>^
-  Table []
-  where getTableRow = hasName "tr" >>> listA (getChildren >>> hasName "td")
-
-showXml :: XmlTree -> String
-showXml = pandoc2512 . xshow . pure
-
-writerOptions :: WriterOptions
-writerOptions = def{ writerWrapText = False }
-
-htmlToPlain :: XmlTree -> Maybe String
-htmlToPlain = rightToMaybe . fmap (writePlain writerOptions . pandocStripEmph) . readHtml def . showXml
-
--- | Remove formatting on labels in links: https://github.com/jgm/pandoc/issues/2507
-pandoc2507 :: String -> String
-pandoc2507 = regexReplace "<([^ >]+) __([^>]+)__>" "__<\\1 \\2>__" .
-             regexReplace "<([^ >]+) /([^>]+)/>" "/<\\1 \\2>/"
-
--- | Escape the angled brackets in <id>
-pandoc2512 :: String -> String
-pandoc2512 = regexReplace "<em><id/?>(s?)</em>" "<em>&lt;id&gt;\1</em>"
-
-pandocStripEmph :: Pandoc -> Pandoc
-pandocStripEmph = walk go
-  where go (Emph is) = Span nullAttr is
-        go (Strong is) = Span nullAttr is
-        go (SmallCaps is) = Span nullAttr is
-        go i = i
-
-fixLinks :: String -> String
-fixLinks = regexReplace "<([^ >]+) ([^>]+)>" "<https:\\/\\/www.khronos.org\\/registry\\/spir-v\\/specs\\/1.0\\/SPIRV.html\\1 \\2>"
-
-removeTags :: String -> String
-removeTags = regexReplace "#([a-zA-Z0-9]+)#__[a-zA-Z0-9]+__" "\\1"
-
-htmlToHaddock :: XmlTree -> Maybe String
-htmlToHaddock =
-  rightToMaybe .
-  fmap (removeTags . fixLinks . pandoc2507 . writeHaddock writerOptions) .
-  readHtml def .
-  showXml
-
-rightToMaybe :: Either t a -> Maybe a
-rightToMaybe (Right x) = Just x
-rightToMaybe (Left _) = Nothing
 
 -- Parsing
 
@@ -391,6 +318,8 @@ parseMarkedDecimal t =
   parseMaybe (many1 digit `sepBy1` string ",") t
   where digit = satisfy isDigit
 
+-- | parseInWords returns the first valid result after trying the parser on the
+-- words in the string
 parseInWords :: ReadP a -> String -> Maybe a
 parseInWords p s = headMay $
   do word <- words s
@@ -399,9 +328,7 @@ parseInWords p s = headMay $
        Just (v, _) -> pure v
 
 parseMaybe :: Parser a -> String -> Maybe a
-parseMaybe p s = case parseOnly p . pack $ s of
-                   Left _ -> Nothing
-                   Right r -> Just r
+parseMaybe p = rightToMaybe . parseOnly p . pack
 
 longestParse :: ReadP a -> String -> Maybe (a, String)
 longestParse p s =
@@ -414,8 +341,6 @@ headLine = fmap strip . listToMaybe . lines
 
 tailLines :: String -> String
 tailLines = strip . dropWhile (/= '\n')
-
--- Stuff from base
 
 strip :: String -> String
 strip = stripL . stripR
