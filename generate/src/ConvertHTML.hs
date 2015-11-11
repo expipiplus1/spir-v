@@ -48,7 +48,7 @@ pandoc2507 = regexReplace "<([^ >]+) __([^>]+)__>" "__<\\1 \\2>__" .
 
 -- | Escape the angled brackets in <id>
 pandoc2512 :: String -> String
-pandoc2512 = regexReplace "<em><id/?>(s?)</em>" "<em>&lt;id&gt;\1</em>"
+pandoc2512 = regexReplace "<em><id/?>(s?)</em>" "<em>&lt;id&gt;\\1</em>"
 
 pandocStripEmph :: Pandoc -> Pandoc
 pandocStripEmph = walk go
