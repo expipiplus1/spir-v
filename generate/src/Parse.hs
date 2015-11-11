@@ -10,10 +10,11 @@ module Parse
   ) where
 
 import Control.Applicative ((<|>))
+import Control.Arrow.ArrowList.Extra (arrF)
 import Control.Monad (guard, (<=<))
 import Data.Attoparsec.Text (Parser, parseOnly, hexadecimal, skipSpace, takeTill, anyChar, takeText, decimal, isEndOfLine, many1, sepBy1, string, satisfy)
 import Data.Char (isSpace, isDigit)
-import Data.Foldable (toList, minimumBy, asum)
+import Data.Foldable (minimumBy, asum)
 import Data.Function (on)
 import Data.List (isInfixOf)
 import Data.Maybe (fromMaybe, catMaybes, listToMaybe)
@@ -77,7 +78,7 @@ getLimits :: ArrowXml a => a XmlTree [Limit]
 getLimits =
       hasSubsectionId "_a_id_limits_a_universal_limits"
   >>> single (deep getTableNoHead)
-  >>> arrFoldable (traverse htmlToPlain)
+  >>> arrF (traverse htmlToPlain)
   >>^ limitsFromTable
   where limitsFromTable (Table _ body) =
           -- use catMaybes because this table is oddly formed, and some rows
@@ -91,7 +92,7 @@ getLimits =
 --------------------------------------------------------------------------------
 
 getMagic :: ArrowXml a => a XmlTree Word32
-getMagic = getTable >>> arrFoldable (traverse htmlToPlain) >>> arrFoldable magicFromTable
+getMagic = getTable >>> arrF (traverse htmlToPlain) >>> arrF magicFromTable
   where -- magicFromTable :: Table -> Either String Word32
         magicFromTable (Table ["Magic Number"] [[n]]) =
           parseOnly ("0x" *> hexadecimal) (pack n)
@@ -109,9 +110,9 @@ getStandardSubsection =
     titleText   <- getAllText -< title
     titleId     <- getAttrValue "id" -< title
     -- TODO: html descriptions
-    description <- concat ^<< listA (arrFoldable htmlToHaddock <<< neg isTable <<< neg (hasName "h3") <<< getChildren) -< subsection
+    description <- concat ^<< listA (arrF htmlToHaddock <<< neg isTable <<< neg (hasName "h3") <<< getChildren) -< subsection
     table       <- getTable <<< getChildren -< subsection
-    arrFoldable standardSubsectionFromTable -<
+    arrF standardSubsectionFromTable -<
       (titleText, titleId, description, table)
 
 standardSubsectionFromTable :: (String, String, String, Table XmlTree)
@@ -179,7 +180,7 @@ getInstructionGroup =
   proc tree ->
     do subsubsection  <- isSubsubsection -< tree
        title          <- single (hasName "h4" <<< getChildren) -< subsubsection
-       (number, name) <- arrFoldable parseSubsubsectionTitle <<< getAllText -< title
+       (number, name) <- arrF parseSubsubsectionTitle <<< getAllText -< title
        -- Every table in this subsubsection should describe a new instruction
        tables         <- listA (getTableNoHead <<< getChildren) -< subsubsection
        -- We probably want to warn when a table couldn't be parsed
@@ -276,9 +277,6 @@ parseWordCount = parseMaybe $
 -- Some extra stuff
 -- TODO: Move this elsewhere
 --------------------------------------------------------------------------------
-
-arrFoldable :: (ArrowList a, Foldable t) => (b -> t c) -> a b c
-arrFoldable = arrL . (toList .)
 
 -- Reading html constructs
 
