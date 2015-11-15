@@ -1,3 +1,4 @@
+{-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE QuasiQuotes #-}
 {-# LANGUAGE RecordWildCards #-}
@@ -6,21 +7,20 @@ module Write
   ( writeSpecToFiles
   ) where
 
+import Control.Monad ((<=<))
 import Data.Char (isAlphaNum, isDigit, toUpper)
 import Data.Foldable (foldl')
 import Data.List (isPrefixOf, intersperse)
 import Data.Maybe (fromJust)
 import Data.Monoid ((<>))
 import Data.String (fromString)
-import Data.Text (unpack)
 import Data.Word (Word32)
 import Numeric (showHex)
+import Safe (readMay)
 import Spec
 import System.Directory (createDirectoryIfMissing)
 import System.FilePath ((</>), (<.>))
 import Text.InterpolatedString.Perl6 (qc)
-import Text.Numeral.Grammar.Reified (defaultInflection)
-import Text.Numeral.Language.EN (us_cardinal)
 import Text.PrettyPrint.Leijen.Text (Doc, vsep, hsep, line, hang, indent, align, empty, (<+>), (<$$>))
 
 writeSpecToFiles :: FilePath -> Spec -> IO ()
@@ -222,13 +222,11 @@ pascalCase :: String -> String
 pascalCase [] = error "pascalCaseCase given empty string"
 pascalCase s = let (l:_) = lines s
                    (w:ws) = filter (not . null) . fmap (filter isAlphaNum) $ words l
-                   ws' = upperFirst <$> correctFirstWord w : ws
+                   ws' = upperFirst <$> (correctFirstWord w ++ ws)
                    upperFirst "" = ""
                    upperFirst (x:xs) = toUpper x : xs
                    correctFirstWord n = let (is, ns) = span isDigit n
-                                        in if null is
-                                             then ns
-                                             else numToString (read is) <> ns
+                                        in fromJust (traverse (digitCardinal <=< readMay . pure) is) ++ [ns]
                in concat ws'
 
 {-
@@ -239,7 +237,18 @@ camelCase s = let (x:xs) = pascalCase s
               in toLower x : xs
               -}
 
-numToString :: Integer -> String
-numToString = unpack . fromJust . us_cardinal defaultInflection
+digitCardinal :: Int -> Maybe String
+digitCardinal = \case
+  0 -> Just "zero"
+  1 -> Just "one"
+  2 -> Just "two"
+  3 -> Just "three"
+  4 -> Just "four"
+  5 -> Just "five"
+  6 -> Just "six"
+  7 -> Just "seven"
+  8 -> Just "eight"
+  9 -> Just "nine"
+  _ -> Nothing
 
 
